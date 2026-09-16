@@ -551,10 +551,6 @@
 			50% { box-shadow: inset 0 0 0 3px rgba(47, 60, 79, 1); }
 		}
 
-		#fh5co-game .cell.danger {
-			background: rgba(47, 60, 79, 0.42);
-		}
-
 		#fh5co-game .sprite {
 			position: absolute;
 			font-size: 19px;
@@ -896,24 +892,7 @@
 				}
 			}
 
-			// Cells a bandit will threaten next, so the board telegraphs danger.
-			function dangerSet() {
-				var d = {};
-				game.bandits.forEach(function (b) {
-					d[key(b.x, b.y)] = true;
-					var dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
-					dirs.forEach(function (dd) {
-						var nx = b.x + dd[0], ny = b.y + dd[1];
-						if (nx >= 0 && ny >= 0 && nx < game.w && ny < game.h && !game.walls[ny][nx]) {
-							d[key(nx, ny)] = true;
-						}
-					});
-				});
-				return d;
-			}
-
 			function render() {
-				var danger = dangerSet();
 				for (var y = 0; y < game.h; y++) {
 					for (var x = 0; x < game.w; x++) {
 						var cell = cellEls[y][x];
@@ -925,7 +904,6 @@
 							cls += ' wall';
 						} else {
 							if (game.trail[key(x, y)]) cls += ' trail';
-							if (danger[key(x, y)]) cls += ' danger';
 
 							if (x === game.depot.x && y === game.depot.y) {
 								cls += ' depot';
@@ -1086,11 +1064,18 @@
 			// Bandits step toward the wagon sometimes, wander otherwise, so they
 			// pressure the player without being unfair pursuers.
 			function moveBandits() {
+				// Track where bandits are and where they are heading, so two of
+				// them never end up stacked on the same square.
+				var taken = {};
+				game.bandits.forEach(function (b) { taken[key(b.x, b.y)] = true; });
+
 				game.bandits.forEach(function (b) {
 					var dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
 					var opts = dirs.filter(function (d) {
 						var nx = b.x + d[0], ny = b.y + d[1];
-						return nx >= 0 && ny >= 0 && nx < game.w && ny < game.h && !game.walls[ny][nx];
+						if (nx < 0 || ny < 0 || nx >= game.w || ny >= game.h) return false;
+						if (game.walls[ny][nx]) return false;
+						return !taken[key(nx, ny)];
 					});
 					if (!opts.length) return;
 
@@ -1105,8 +1090,11 @@
 					} else {
 						choice = pick(opts);
 					}
+
+					delete taken[key(b.x, b.y)];
 					b.x += choice[0];
 					b.y += choice[1];
+					taken[key(b.x, b.y)] = true;
 				});
 			}
 
