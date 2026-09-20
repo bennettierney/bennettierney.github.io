@@ -866,6 +866,8 @@
 						crate: crate, depot: depot,
 						bandits: bandits, pickups: pickups,
 						par: par, budget: budget, timeLeft: budget,
+						banditStep: Math.max(0.42, 0.72 - (runNo - 3) * 0.02),
+						banditClock: 0,
 						loaded: false, over: false,
 						trail: {},
 						moveCount: 0
@@ -1050,6 +1052,21 @@
 					endSession('The clock ran out.');
 					return;
 				}
+
+				// Bandits advance on their own clock, so standing still is not safe.
+				game.banditClock += dt;
+				if (game.banditClock >= game.banditStep) {
+					game.banditClock = 0;
+					moveBandits();
+					if (caught()) {
+						render();
+						shake();
+						endSession('Bandits took the wagon.');
+						return;
+					}
+					render();
+				}
+
 				updateTimer();
 				raf = requestAnimationFrame(tick);
 			}
@@ -1146,8 +1163,6 @@
 					return;
 				}
 
-				moveBandits();
-
 				if (caught()) {
 					render();
 					shake();
@@ -1193,26 +1208,36 @@
 				W: [0, -1], S: [0, 1], A: [-1, 0], D: [1, 0]
 			};
 
-			var visible = false;
+			// Measure visibility directly rather than trusting a callback: if an
+			// observer never fires, the game must not become unplayable.
+			function boardVisible() {
+				var r = board.getBoundingClientRect();
+				var vh = window.innerHeight || document.documentElement.clientHeight;
+				if (!vh || !r.height) return false;
+				var shown = Math.min(r.bottom, vh) - Math.max(r.top, 0);
+				return shown / r.height > 0.4;
+			}
+
+			// Keep the clock in step with visibility, whatever caused the change.
+			function syncClock() {
+				if (!session.active || !game || game.over) return;
+				if (boardVisible()) {
+					if (!raf) { lastTick = 0; raf = requestAnimationFrame(tick); }
+				} else if (raf) {
+					cancelAnimationFrame(raf); raf = null;
+				}
+			}
+
+			window.addEventListener('scroll', syncClock, { passive: true });
+			window.addEventListener('resize', syncClock, { passive: true });
 			if ('IntersectionObserver' in window) {
-				new IntersectionObserver(function (entries) {
-					entries.forEach(function (e) {
-						visible = e.isIntersecting;
-						// Pause the clock when the player scrolls away.
-						if (!visible && session.active && raf) {
-							cancelAnimationFrame(raf); raf = null;
-						} else if (visible && session.active && !raf && game && !game.over) {
-							lastTick = 0;
-							raf = requestAnimationFrame(tick);
-						}
-					});
-				}, { threshold: 0.4 }).observe(board);
+				new IntersectionObserver(syncClock, { threshold: [0, 0.4, 1] }).observe(board);
 			}
 
 			document.addEventListener('keydown', function (e) {
 				var dir = KEYS[e.key];
 				if (!dir) return;
-				if (!visible) return;
+				if (!boardVisible()) return;
 				e.preventDefault();
 				move(dir[0], dir[1]);
 			});
